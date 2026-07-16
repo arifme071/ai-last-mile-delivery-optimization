@@ -1,0 +1,5 @@
+truck_id,capacity_kg,fixed_cost_usd,cost_per_km_usd,max_shift_min
+Fleet-01,150,65.0,0.85,600
+Fleet-02,150,65.0,0.85,600
+Fleet-03,150,65.0,0.85,600
+Fleet-04,150,65.0,0.85,600
