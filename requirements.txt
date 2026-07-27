@@ -1,0 +1,18 @@
+# Optimization
+gurobipy>=11.0
+ortools>=9.9
+
+# Data & ML
+pandas>=2.0
+numpy>=1.26
+scikit-learn>=1.4
+xgboost>=2.0
+
+# App & visualization
+streamlit>=1.35
+streamlit-folium>=0.22
+folium>=0.16
+plotly>=5.20
+
+# Testing
+pytest>=8.0
