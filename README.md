@@ -1,4 +1,4 @@
-# 🚚 AI-Powered Last-Mile Delivery Optimization Platform
+# 🚚 AI-Powered Last-Mile Delivery Optimization Platform (Initial live: https://ai-last-mile-delivery-optimization.streamlit.app/)
 
 An end-to-end logistics optimization platform combining **mathematical
 optimization (Gurobi + OR-Tools)**, **machine learning**, and
