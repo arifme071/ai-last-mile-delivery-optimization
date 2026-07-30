@@ -1,4 +1,6 @@
-# 🚚 AI-Powered Last-Mile Delivery Optimization Platform (Initial live: https://ai-last-mile-delivery-optimization.streamlit.app/)
+# 🚚 AI-Powered Last-Mile Delivery Optimization Platform
+
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://ai-last-mile-delivery-optimization.streamlit.app/)
 
 An end-to-end logistics optimization platform combining **mathematical
 optimization (Gurobi + OR-Tools)**, **machine learning**, and
