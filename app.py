@@ -190,9 +190,20 @@ with tab_scenario:
                 scenario_rows.append(
                     {
                         "Trucks available": n_trucks,
+                        "Feasible": "Yes",
                         "Trucks used": scenario_result["trucks_used"],
                         "Total distance (km)": round(scenario_result["total_distance_km"], 1),
                         "Total cost ($)": round(scenario_result["total_cost_usd"], 2),
+                    }
+                )
+            else:
+                scenario_rows.append(
+                    {
+                        "Trucks available": n_trucks,
+                        "Feasible": "No — insufficient capacity/time-window coverage",
+                        "Trucks used": None,
+                        "Total distance (km)": None,
+                        "Total cost ($)": None,
                     }
                 )
             progress.progress((i + 1) / max_trucks_to_test)
@@ -216,6 +227,15 @@ with tab_scenario:
             margin=dict(l=10, r=10, t=10, b=10),
         )
         st.plotly_chart(fig, use_container_width=True)
+
+        infeasible_count = (scenario_df["Feasible"] == "No — insufficient capacity/time-window coverage").sum()
+        if infeasible_count > 0:
+            st.caption(
+                f"{infeasible_count} fleet size(s) below the minimum are infeasible — not enough combined "
+                f"capacity and/or time-window coverage to serve all customers. Cost plateaus once enough "
+                f"trucks are available to cover the network; additional trucks beyond that add fixed "
+                f"dispatch cost without further route savings."
+            )
     else:
         st.info("Click **Run scenario sweep** to compare cost across fleet sizes.")
 
