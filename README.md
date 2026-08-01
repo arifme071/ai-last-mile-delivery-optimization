@@ -6,8 +6,8 @@ An end-to-end logistics optimization platform combining **mathematical
 optimization (Gurobi, IBM CPLEX, SCIP, CBC via PuLP + Google OR-Tools)**,
 **machine learning**, and **interactive analytics** to plan
 cost-minimizing, time-window-feasible delivery routes for a last-mile
-fleet — built around a synthetic Atlanta delivery network (30 customers,
-6 trucks, 1 depot).
+fleet — built around a synthetic Atlanta delivery network (100 customers,
+15 trucks, 1 depot).
 
 ## 🎯 Objectives
 
@@ -31,7 +31,7 @@ fleet — built around a synthetic Atlanta delivery network (30 customers,
   problems. All four converge to the same optimal cost; solve time is
   where they differ (CPLEX/Gurobi < 0.2s, SCIP < 1s, CBC ~11s on the
   benchmark instance)
-- **Large-scale CVRPTW solve (OR-Tools)** — the full 30-stop / 6-truck
+- **Large-scale CVRPTW solve (OR-Tools)** — the full 100-stop / 6-truck
   instance solved in seconds via constraint programming + guided local
   search
 - **Vehicle routing with capacity constraints and delivery time windows**
@@ -135,9 +135,9 @@ pytest tests/test_optimizer.py -v
 ## Why more than one solver?
 
 Gurobi's and CPLEX's free size-limited licenses cap a model at roughly
-1,000–2,000 variables. A full three-index CVRPTW formulation for 30
-customers × 6 trucks needs roughly 5,600 arc variables — over both
-limits. So this project uses two complementary strategies:
+1,000–2,000 variables. A full three-index CVRPTW formulation for 100
+customers × 15 trucks needs roughly 151,500 arc variables — vastly over
+both limits. So this project uses two complementary strategies:
 
 1. **Exact solve on a small instance, across four backends.**
    `multi_solver_vrp.py` builds one formulation in PuLP and solves it
@@ -147,7 +147,7 @@ limits. So this project uses two complementary strategies:
    (commercial solvers fastest, free CBC solver slowest but still
    correct).
 2. **Heuristic solve on the full-scale instance.** `ortools_solver.py`
-   solves the full 30-stop / 6-truck problem in seconds using
+   solves the full 100-stop / 15-truck problem in seconds using
    constraint programming + guided local search, trading a formal
    optimality guarantee for the ability to solve at production scale.
 

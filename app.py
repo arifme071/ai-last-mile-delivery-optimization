@@ -3,7 +3,7 @@ Streamlit dashboard for the AI-Powered Last-Mile Delivery Optimization
 Platform.
 
 Ties together:
-  - optimization/ortools_solver.py  -> full-scale (30-stop) route solve
+  - optimization/ortools_solver.py  -> full-scale (100-stop) route solve
   - optimization/vrp_model.py       -> exact Gurobi solve on a small
                                         subset, for optimality benchmarking
   - models/demand_prediction.py     -> next-14-day package volume forecast
@@ -108,7 +108,7 @@ with tab_routing:
                 "Trucks available", min_value=2, max_value=len(trucks), value=len(trucks)
             )
             solve_time_limit = st.slider(
-                "OR-Tools solve time limit (sec)", min_value=5, max_value=30, value=15
+                "OR-Tools solve time limit (sec)", min_value=5, max_value=45, value=15
             )
             n_customers_route = len(customers)
         else:
@@ -120,7 +120,12 @@ with tab_routing:
             n_customers_route = st.slider(
                 "Customers to include", min_value=4, max_value=10, value=6,
             )
-            num_trucks_available = len(trucks)
+            num_trucks_available = st.slider(
+                "Trucks available", min_value=2, max_value=min(6, len(trucks)),
+                value=min(4, len(trucks)),
+                help="Kept small alongside customers — both add to the variable count "
+                     "that exact solvers must handle within their license limits.",
+            )
             solve_time_limit = st.slider(
                 f"{route_solver_choice} solve time limit (sec)", min_value=5, max_value=60, value=20
             )
@@ -521,7 +526,7 @@ with tab_about:
         """
 This platform demonstrates an end-to-end operations research + ML workflow
 for last-mile delivery, built around a synthetic Atlanta delivery network
-(30 customers, 6 trucks, a single depot):
+(100 customers, 15 trucks, a single depot):
 
 - **Exact optimization (Gurobi):** `optimization/vrp_model.py` formulates the
   full Capacitated VRP with Time Windows (CVRPTW) as a mixed-integer program
@@ -532,7 +537,7 @@ for last-mile delivery, built around a synthetic Atlanta delivery network
   (Gurobi, IBM CPLEX) and two free/open-source (SCIP, CBC) — to compare
   license limits and solve speed on identical problems.
 - **Large-scale optimization (OR-Tools):** `optimization/ortools_solver.py`
-  solves the full 30-stop / 6-truck instance in seconds using constraint
+  solves the full 100-stop / 15-truck instance in seconds using constraint
   programming + guided local search — the same exact-vs-heuristic trade-off
   that underlies production routing systems like UPS's ORION.
 - **Demand forecasting (XGBoost):** `models/demand_prediction.py` forecasts
