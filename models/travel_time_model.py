@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
+from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, r2_score
 from sklearn.model_selection import train_test_split
 
@@ -62,29 +63,47 @@ def generate_trip_history(num_trips: int = 6000) -> pd.DataFrame:
 
 FEATURE_COLUMNS = ["distance_km", "hour_of_day", "day_of_week"]
 
+TRAVEL_TIME_MODEL_FACTORIES = {
+    "Random Forest": lambda: RandomForestRegressor(
+        n_estimators=200, max_depth=10, random_state=RANDOM_SEED, n_jobs=-1,
+    ),
+    "Gradient Boosting": lambda: GradientBoostingRegressor(
+        n_estimators=200, max_depth=4, learning_rate=0.05, random_state=RANDOM_SEED,
+    ),
+    "Linear Regression": lambda: LinearRegression(),
+}
 
-def train_travel_time_model(df: pd.DataFrame | None = None):
-    """Train a RandomForest regressor to predict travel time from trip context."""
+TRAVEL_TIME_MODEL_NOTES = {
+    "Random Forest": "Ensemble of decision trees — captures the non-linear rush-hour congestion bumps well.",
+    "Gradient Boosting": "Sequentially-fit boosted trees — often the tightest fit, at some extra training cost.",
+    "Linear Regression": "Simple linear baseline — assumes congestion scales linearly with hour of day, which understates rush-hour peaks. Useful as a sanity-check floor.",
+}
+
+
+def train_travel_time_model(df: pd.DataFrame | None = None, model_type: str = "Random Forest"):
+    """
+    Train a travel-time prediction model. model_type selects the algorithm:
+    "Random Forest" (default), "Gradient Boosting", or "Linear Regression" —
+    useful for comparing how well each captures the non-linear rush-hour
+    congestion pattern versus a flat-speed or linear assumption.
+    """
     if df is None:
         df = generate_trip_history()
+    if model_type not in TRAVEL_TIME_MODEL_FACTORIES:
+        raise ValueError(f"Unknown model_type '{model_type}'. Choose from {list(TRAVEL_TIME_MODEL_FACTORIES)}.")
 
     train_df, test_df = train_test_split(
         df, test_size=0.2, random_state=RANDOM_SEED
     )
 
-    model = RandomForestRegressor(
-        n_estimators=200,
-        max_depth=10,
-        random_state=RANDOM_SEED,
-        n_jobs=-1,
-    )
+    model = TRAVEL_TIME_MODEL_FACTORIES[model_type]()
     model.fit(train_df[FEATURE_COLUMNS], train_df["travel_time_min"])
 
     predictions = model.predict(test_df[FEATURE_COLUMNS])
     mae = mean_absolute_error(test_df["travel_time_min"], predictions)
     r2 = r2_score(test_df["travel_time_min"], predictions)
 
-    return model, {"mae": mae, "r2": r2}
+    return model, {"mae": mae, "r2": r2, "model_type": model_type}
 
 
 def predict_travel_time_min(

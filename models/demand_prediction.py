@@ -17,6 +17,8 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error
 from xgboost import XGBRegressor
 
@@ -85,31 +87,48 @@ FEATURE_COLUMNS = [
     "lag_1", "lag_7", "rolling_mean_7", "rolling_mean_28",
 ]
 
+DEMAND_MODEL_FACTORIES = {
+    "XGBoost": lambda: XGBRegressor(
+        n_estimators=300, max_depth=4, learning_rate=0.05,
+        subsample=0.9, colsample_bytree=0.9, random_state=RANDOM_SEED,
+    ),
+    "Random Forest": lambda: RandomForestRegressor(
+        n_estimators=300, max_depth=8, random_state=RANDOM_SEED, n_jobs=-1,
+    ),
+    "Linear Regression": lambda: LinearRegression(),
+}
 
-def train_demand_model(df: pd.DataFrame | None = None):
-    """Train an XGBoost regressor on a time-ordered train/test split."""
+DEMAND_MODEL_NOTES = {
+    "XGBoost": "Gradient-boosted trees — usually the strongest fit on this kind of seasonal, non-linear demand data.",
+    "Random Forest": "Ensemble of decision trees — robust, less prone to overfitting than a single boosted model, slightly less precise on smooth trends.",
+    "Linear Regression": "Simple linear baseline — fast and interpretable, but can't capture the non-linear peak-season effect well. Useful as a sanity-check floor.",
+}
+
+
+def train_demand_model(df: pd.DataFrame | None = None, model_type: str = "XGBoost"):
+    """
+    Train a demand forecasting model on a time-ordered train/test split.
+    model_type selects the algorithm: "XGBoost" (default), "Random Forest",
+    or "Linear Regression" — useful for comparing a gradient-boosted model
+    against simpler baselines on the same seasonal, non-linear demand series.
+    """
     if df is None:
         df = generate_demand_history()
+    if model_type not in DEMAND_MODEL_FACTORIES:
+        raise ValueError(f"Unknown model_type '{model_type}'. Choose from {list(DEMAND_MODEL_FACTORIES)}.")
 
     features = build_features(df)
     split_idx = int(len(features) * 0.85)
     train, test = features.iloc[:split_idx], features.iloc[split_idx:]
 
-    model = XGBRegressor(
-        n_estimators=300,
-        max_depth=4,
-        learning_rate=0.05,
-        subsample=0.9,
-        colsample_bytree=0.9,
-        random_state=RANDOM_SEED,
-    )
+    model = DEMAND_MODEL_FACTORIES[model_type]()
     model.fit(train[FEATURE_COLUMNS], train["package_volume"])
 
     predictions = model.predict(test[FEATURE_COLUMNS])
     mae = mean_absolute_error(test["package_volume"], predictions)
     mape = mean_absolute_percentage_error(test["package_volume"], predictions)
 
-    return model, {"mae": mae, "mape": mape, "test": test, "predictions": predictions}
+    return model, {"mae": mae, "mape": mape, "test": test, "predictions": predictions, "model_type": model_type}
 
 
 def forecast_next_days(model, history: pd.DataFrame, num_days: int = 14) -> pd.DataFrame:
