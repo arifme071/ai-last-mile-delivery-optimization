@@ -43,6 +43,7 @@ from optimization.vrp_model import solve_demo as solve_gurobi_demo
 from optimization.multi_solver_vrp import (
     SOLVER_FACTORIES,
     SOLVER_NOTES,
+    haversine_km,
     solve_cvrptw_multi,
 )
 from visualization.route_map import build_route_map
@@ -93,36 +94,107 @@ with tab_routing:
 
     with col_controls:
         st.subheader("Fleet & Solve Settings")
-        num_trucks_available = st.slider(
-            "Trucks available", min_value=2, max_value=len(trucks), value=len(trucks)
+
+        route_solver_choice = st.selectbox(
+            "Optimizer", options=["OR-Tools"] + list(SOLVER_FACTORIES.keys()), index=0,
+            help="OR-Tools solves the full network fast (heuristic). The exact solvers "
+                 "(Gurobi/CPLEX/SCIP/CBC) prove optimality but only on a size-limited "
+                 "subset of customers — Gurobi and CPLEX in particular will hard-fail "
+                 "past their free license limits.",
         )
-        solve_time_limit = st.slider(
-            "OR-Tools solve time limit (sec)", min_value=5, max_value=30, value=15
-        )
+
+        if route_solver_choice == "OR-Tools":
+            num_trucks_available = st.slider(
+                "Trucks available", min_value=2, max_value=len(trucks), value=len(trucks)
+            )
+            solve_time_limit = st.slider(
+                "OR-Tools solve time limit (sec)", min_value=5, max_value=30, value=15
+            )
+            n_customers_route = len(customers)
+        else:
+            st.caption(
+                f"{route_solver_choice} is an exact solver — restricted to a smaller "
+                f"customer subset here to stay within license limits and keep solve "
+                f"time reasonable. {SOLVER_NOTES.get(route_solver_choice, '')}"
+            )
+            n_customers_route = st.slider(
+                "Customers to include", min_value=4, max_value=10, value=6,
+            )
+            num_trucks_available = len(trucks)
+            solve_time_limit = st.slider(
+                f"{route_solver_choice} solve time limit (sec)", min_value=5, max_value=60, value=20
+            )
+
         run_solve = st.button("Solve routes", type="primary")
 
     if run_solve:
-        with st.spinner("Solving vehicle routing problem with OR-Tools..."):
-            active_trucks = trucks.head(num_trucks_available)
-            start = time.time()
-            result = solve_cvrptw(customers, active_trucks, depot, time_limit_sec=solve_time_limit)
-            elapsed = time.time() - start
+        active_customers = customers.head(n_customers_route)
+        active_trucks = trucks.head(num_trucks_available)
+
+        if route_solver_choice == "OR-Tools":
+            with st.spinner("Solving vehicle routing problem with OR-Tools..."):
+                start = time.time()
+                result = solve_cvrptw(active_customers, active_trucks, depot, time_limit_sec=solve_time_limit)
+                elapsed = time.time() - start
+        else:
+            with st.spinner(f"Solving exactly with {route_solver_choice}..."):
+                start = time.time()
+                raw_result = solve_cvrptw_multi(
+                    active_customers, active_trucks, depot,
+                    solver_name=route_solver_choice, time_limit_sec=solve_time_limit,
+                )
+                elapsed = time.time() - start
+
+            if raw_result.get("error") or not raw_result.get("routes"):
+                result = None
+                st.error(
+                    f"{route_solver_choice} could not solve this instance: "
+                    f"{raw_result.get('error') or raw_result.get('status', 'no feasible solution found')}. "
+                    f"Try fewer customers, a longer time limit, or OR-Tools instead."
+                )
+            else:
+                coords = {"depot": (depot["latitude"], depot["longitude"])}
+                for _, row in active_customers.iterrows():
+                    coords[row["customer_id"]] = (row["latitude"], row["longitude"])
+
+                total_distance_km = 0.0
+                for route in raw_result["routes"].values():
+                    for a, b in zip(route[:-1], route[1:]):
+                        total_distance_km += haversine_km(
+                            coords[a][0], coords[a][1], coords[b][0], coords[b][1]
+                        )
+
+                result = {
+                    "routes": raw_result["routes"],
+                    "trucks_used": raw_result["trucks_used"],
+                    "total_distance_km": total_distance_km,
+                    "total_cost_usd": raw_result["objective"],
+                }
+
         st.session_state["last_result"] = result
         st.session_state["last_elapsed"] = elapsed
+        st.session_state["last_customers_used"] = active_customers
+        st.session_state["last_solver_used"] = route_solver_choice
 
     result = st.session_state.get("last_result")
 
     if result is not None:
         elapsed = st.session_state.get("last_elapsed", 0.0)
+        solver_used = st.session_state.get("last_solver_used", "OR-Tools")
+        customers_for_map = st.session_state.get("last_customers_used", customers)
+
         kpi_cols = st.columns(4)
         kpi_cols[0].metric("Trucks used", result["trucks_used"])
         kpi_cols[1].metric("Total distance", f"{result['total_distance_km']:.1f} km")
         kpi_cols[2].metric("Total cost", f"${result['total_cost_usd']:,.2f}")
         kpi_cols[3].metric("Solve time", f"{elapsed:.1f}s")
 
+        if solver_used != "OR-Tools":
+            st.caption(f"Solved exactly with {solver_used} on {len(customers_for_map)} customers.")
+
         with col_map:
             st.subheader("Route Map")
-            route_map = build_route_map(result["routes"], customers, depot)
+            route_map = build_route_map(result["routes"], customers_for_map, depot)
             st_folium(route_map, width=None, height=500)
 
         st.subheader("Route Detail")
@@ -307,12 +379,13 @@ with tab_scenario:
 # TAB 4 — Solver Comparison (Gurobi vs CPLEX vs SCIP vs CBC)
 # ----------------------------------------------------------------------
 with tab_solvers:
-    st.subheader("Exact Solver Comparison")
+    st.subheader("Exact vs. Heuristic Solver Comparison")
     st.caption(
-        "Runs the exact same CVRPTW mixed-integer formulation through four different "
-        "solver backends — Gurobi, IBM CPLEX, SCIP, and CBC — via a common PuLP model. "
-        "Useful for comparing free vs. commercial solvers on speed and license limits, "
-        "not just picking one vendor by default."
+        "Runs the exact same CVRPTW formulation through five different solvers — "
+        "Gurobi, IBM CPLEX, SCIP, and CBC (all exact, via a common PuLP model), plus "
+        "Google OR-Tools (heuristic, guided local search) — on the identical small "
+        "problem. Useful for comparing not just commercial vs. open-source solvers, "
+        "but exact optimality guarantees vs. fast heuristic search."
     )
 
     col_a, col_b = st.columns([1, 1])
@@ -324,15 +397,22 @@ with tab_solvers:
     with col_b:
         solver_time_limit = st.slider("Per-solver time limit (sec)", 5, 60, 20)
 
+    all_solver_options = list(SOLVER_FACTORIES.keys()) + ["OR-Tools"]
     selected_solvers = st.multiselect(
         "Solvers to compare",
-        options=list(SOLVER_FACTORIES.keys()),
-        default=list(SOLVER_FACTORIES.keys()),
+        options=all_solver_options,
+        default=all_solver_options,
     )
 
     with st.expander("What each solver is"):
         for name, note in SOLVER_NOTES.items():
             st.write(f"**{name}** — {note}")
+        st.write(
+            "**OR-Tools** — Free, open-source (Google); heuristic constraint-programming "
+            "solver, not an exact MIP solver. No optimality guarantee, but built to solve "
+            "much larger problems fast — this is what powers the full-scale Route "
+            "Optimization and Scenario Analysis tabs elsewhere in this app."
+        )
 
     run_solver_comparison = st.button("Run solver comparison", type="primary")
 
@@ -342,6 +422,28 @@ with tab_solvers:
         progress = st.progress(0.0)
 
         for i, solver_name in enumerate(selected_solvers):
+            if solver_name == "OR-Tools":
+                ortools_result = solve_cvrptw(
+                    small_customers, trucks, depot, time_limit_sec=solver_time_limit,
+                )
+                if ortools_result is None:
+                    comparison_rows.append(
+                        {"Solver": "OR-Tools", "Status": "Infeasible", "Objective ($)": None,
+                         "Trucks used": None, "Solve time (s)": None}
+                    )
+                else:
+                    comparison_rows.append(
+                        {
+                            "Solver": "OR-Tools",
+                            "Status": "Feasible (heuristic)",
+                            "Objective ($)": round(ortools_result["total_cost_usd"], 2),
+                            "Trucks used": ortools_result["trucks_used"],
+                            "Solve time (s)": None,  # OR-Tools always runs its full time budget internally
+                        }
+                    )
+                progress.progress((i + 1) / max(len(selected_solvers), 1))
+                continue
+
             result = solve_cvrptw_multi(
                 small_customers, trucks, depot,
                 solver_name=solver_name, time_limit_sec=solver_time_limit,
@@ -370,25 +472,45 @@ with tab_solvers:
     if comparison_df is not None:
         st.dataframe(comparison_df, use_container_width=True, hide_index=True)
 
-        solved_df = comparison_df.dropna(subset=["Objective ($)"])
-        if len(solved_df) > 1 and solved_df["Objective ($)"].nunique() == 1:
+        exact_df = comparison_df[comparison_df["Solver"] != "OR-Tools"].dropna(subset=["Objective ($)"])
+        if len(exact_df) > 1 and exact_df["Objective ($)"].nunique() == 1:
             st.success(
-                f"All solvers that ran agree on the same optimal cost — "
-                f"${solved_df['Objective ($)'].iloc[0]:.2f} — confirming the formulation "
+                f"All exact solvers that ran agree on the same optimal cost — "
+                f"${exact_df['Objective ($)'].iloc[0]:.2f} — confirming the formulation "
                 f"is solver-independent. Solve time is where they actually differ."
             )
 
-        fig = go.Figure()
-        fig.add_trace(
-            go.Bar(x=solved_df["Solver"], y=solved_df["Solve time (s)"], marker_color="#C41E3A")
-        )
-        fig.update_layout(
-            xaxis_title="Solver", yaxis_title="Solve time (seconds)",
-            margin=dict(l=10, r=10, t=10, b=10),
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        ortools_row = comparison_df[comparison_df["Solver"] == "OR-Tools"]
+        if not ortools_row.empty and not exact_df.empty and ortools_row["Objective ($)"].iloc[0] is not None:
+            ortools_cost = ortools_row["Objective ($)"].iloc[0]
+            optimal_cost = exact_df["Objective ($)"].iloc[0]
+            gap_pct = abs(ortools_cost - optimal_cost) / optimal_cost * 100
+            st.info(
+                f"OR-Tools (heuristic) found a solution at ${ortools_cost:.2f}, "
+                f"a {gap_pct:.1f}% gap from the proven optimal cost of ${optimal_cost:.2f} — "
+                f"showing how close a fast heuristic gets without a formal optimality guarantee."
+            )
+
+        chart_df = comparison_df.dropna(subset=["Solve time (s)"])
+        if not chart_df.empty:
+            fig = go.Figure()
+            fig.add_trace(
+                go.Bar(x=chart_df["Solver"], y=chart_df["Solve time (s)"], marker_color="#C41E3A")
+            )
+            fig.update_layout(
+                xaxis_title="Solver", yaxis_title="Solve time (seconds)",
+                margin=dict(l=10, r=10, t=10, b=10),
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            if "OR-Tools" in comparison_df["Solver"].values:
+                st.caption(
+                    "OR-Tools isn't shown on the timing chart — it always runs its full "
+                    "search-time budget internally rather than stopping early like an "
+                    "exact solver does once it proves optimality, so its wall-clock time "
+                    "isn't directly comparable to the exact solvers' solve times."
+                )
     else:
-        st.info("Click **Run solver comparison** to benchmark Gurobi, CPLEX, SCIP, and CBC on the same problem.")
+        st.info("Click **Run solver comparison** to benchmark Gurobi, CPLEX, SCIP, CBC, and OR-Tools on the same problem.")
 
 # ----------------------------------------------------------------------
 # TAB 5 — About
