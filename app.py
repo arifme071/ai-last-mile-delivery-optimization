@@ -25,11 +25,15 @@ import streamlit as st
 from streamlit_folium import st_folium
 
 from models.demand_prediction import (
+    DEMAND_MODEL_FACTORIES,
+    DEMAND_MODEL_NOTES,
     forecast_next_days,
     generate_demand_history,
     train_demand_model,
 )
 from models.travel_time_model import (
+    TRAVEL_TIME_MODEL_FACTORIES,
+    TRAVEL_TIME_MODEL_NOTES,
     predict_travel_time_min,
     train_travel_time_model,
 )
@@ -56,16 +60,16 @@ def _cached_load_instance():
 
 
 @st.cache_data(show_spinner=False)
-def _cached_demand_forecast():
+def _cached_demand_forecast(model_type: str = "XGBoost"):
     history = generate_demand_history()
-    model, metrics = train_demand_model(history)
+    model, metrics = train_demand_model(history, model_type=model_type)
     forecast = forecast_next_days(model, history, num_days=14)
     return history, forecast, metrics
 
 
 @st.cache_data(show_spinner=False)
-def _cached_travel_time_metrics():
-    _, metrics = train_travel_time_model()
+def _cached_travel_time_metrics(model_type: str = "Random Forest"):
+    _, metrics = train_travel_time_model(model_type=model_type)
     return metrics
 
 
@@ -132,7 +136,14 @@ with tab_routing:
 # ----------------------------------------------------------------------
 with tab_forecast:
     st.subheader("14-Day Package Volume Forecast")
-    history, forecast, metrics = _cached_demand_forecast()
+
+    demand_model_choice = st.selectbox(
+        "Forecasting model", options=list(DEMAND_MODEL_FACTORIES.keys()), index=0,
+        help="Compare a gradient-boosted model against simpler baselines on the same seasonal demand data.",
+    )
+    st.caption(DEMAND_MODEL_NOTES[demand_model_choice])
+
+    history, forecast, metrics = _cached_demand_forecast(model_type=demand_model_choice)
 
     forecast_cols = st.columns(3)
     forecast_cols[0].metric("Backtest MAE", f"{metrics['mae']:.0f} pkgs/day")
@@ -161,6 +172,20 @@ with tab_forecast:
         margin=dict(l=10, r=10, t=10, b=10),
     )
     st.plotly_chart(fig, use_container_width=True)
+
+    with st.expander("Compare all forecasting models on this data"):
+        compare_rows = []
+        for name in DEMAND_MODEL_FACTORIES:
+            _, m = _cached_demand_forecast(model_type=name)
+            compare_rows.append(
+                {"Model": name, "Backtest MAE (pkgs/day)": round(m["mae"], 1),
+                 "Backtest MAPE (%)": round(m["mape"] * 100, 2)}
+            )
+        st.dataframe(pd.DataFrame(compare_rows), use_container_width=True, hide_index=True)
+        st.caption(
+            "Linear Regression sets a useful floor — if a more complex model can't beat it "
+            "by much, that's a signal the extra complexity isn't earning its keep."
+        )
 
     with st.expander("What this forecast is used for"):
         st.write(
@@ -246,15 +271,37 @@ with tab_scenario:
 
     st.divider()
     st.subheader("Travel-Time Model: ML vs. Flat-Speed Assumption")
-    tt_metrics = _cached_travel_time_metrics()
+
+    tt_model_choice = st.selectbox(
+        "Travel-time model", options=list(TRAVEL_TIME_MODEL_FACTORIES.keys()), index=0,
+        help="Compare how well each model captures the non-linear rush-hour congestion pattern.",
+    )
+    st.caption(TRAVEL_TIME_MODEL_NOTES[tt_model_choice])
+
+    tt_metrics = _cached_travel_time_metrics(model_type=tt_model_choice)
     st.write(
         f"The optimization models above assume a flat {35} km/h average speed. "
-        f"A RandomForest model trained on synthetic historical trips "
-        f"(distance, hour of day, day of week) predicts actual travel time "
+        f"The **{tt_model_choice}** model, trained on synthetic historical trips "
+        f"(distance, hour of day, day of week), predicts actual travel time "
         f"with a test MAE of **{tt_metrics['mae']:.1f} minutes** "
         f"(R² = {tt_metrics['r2']:.2f}), capturing rush-hour slowdowns the "
         f"flat-speed model misses."
     )
+
+    with st.expander("Compare all travel-time models on this data"):
+        tt_compare_rows = []
+        for name in TRAVEL_TIME_MODEL_FACTORIES:
+            m = _cached_travel_time_metrics(model_type=name)
+            tt_compare_rows.append(
+                {"Model": name, "Test MAE (min)": round(m["mae"], 2), "Test R²": round(m["r2"], 3)}
+            )
+        st.dataframe(pd.DataFrame(tt_compare_rows), use_container_width=True, hide_index=True)
+        st.caption(
+            "Linear Regression underperforms here because rush-hour congestion is a "
+            "non-linear bump, not a straight-line trend with hour of day — a good "
+            "illustration of when a simple model structurally can't fit the pattern, "
+            "no matter how much data it sees."
+        )
 
 # ----------------------------------------------------------------------
 # TAB 4 — Solver Comparison (Gurobi vs CPLEX vs SCIP vs CBC)
