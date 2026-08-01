@@ -20,7 +20,7 @@ from models.demand_prediction import (
     train_demand_model,
 )
 from models.travel_time_model import generate_trip_history, train_travel_time_model
-from optimization.ortools_solver import load_instance, solve_cvrptw
+from optimization.ortools_solver import haversine_km, load_instance, solve_cvrptw
 from optimization.vrp_model import load_instance as load_gurobi_instance
 from optimization.vrp_model import solve_demo
 from optimization.multi_solver_vrp import solve_cvrptw_multi
@@ -111,3 +111,33 @@ def test_multi_solver_backends_agree_on_optimal_cost():
     # confirming the formulation itself is solver-independent.
     assert len(objectives) >= 2
     assert len(set(objectives.values())) == 1
+
+
+def test_ortools_route_distance_matches_manual_haversine_sum():
+    """
+    Regression test for a real bug: the original route-distance extraction
+    in ortools_solver.py skipped the final leg back to the depot on every
+    route (an `if not routing.IsEnd(next_index)` guard silently dropped
+    the last arc), undercounting total distance/cost on every solve. This
+    test independently recomputes one route's distance leg-by-leg with
+    haversine and checks it matches what solve_cvrptw reports — so this
+    class of bug can't silently reappear.
+    """
+    customers, trucks, depot = load_instance()
+    small_customers = customers.head(6)
+    result = solve_cvrptw(small_customers, trucks, depot, time_limit_sec=20)
+
+    assert result is not None
+
+    coords = {"depot": (depot["latitude"], depot["longitude"])}
+    for _, row in small_customers.iterrows():
+        coords[row["customer_id"]] = (row["latitude"], row["longitude"])
+
+    manual_total_km = 0.0
+    for route in result["routes"].values():
+        for a, b in zip(route[:-1], route[1:]):
+            manual_total_km += haversine_km(
+                coords[a][0], coords[a][1], coords[b][0], coords[b][1]
+            )
+
+    assert abs(manual_total_km - result["total_distance_km"]) < 0.01

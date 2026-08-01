@@ -182,9 +182,8 @@ def solve_cvrptw(
             node = manager.IndexToNode(index)
             route_nodes.append(node_names[node])
             next_index = solution.Value(routing.NextVar(index))
-            if not routing.IsEnd(next_index):
-                next_node = manager.IndexToNode(next_index)
-                route_distance_km += distance_km[node, next_node]
+            next_node = manager.IndexToNode(next_index)
+            route_distance_km += distance_km[node, next_node]
             index = next_index
         route_nodes.append("depot")
 

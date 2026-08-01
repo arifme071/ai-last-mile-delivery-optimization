@@ -104,13 +104,16 @@ with tab_routing:
         )
 
         if route_solver_choice == "OR-Tools":
+            n_customers_route = st.slider(
+                "Customers to include", min_value=5, max_value=len(customers), value=len(customers),
+                help="Defaults to the full network. Reduce for a faster demo solve or to test a smaller region.",
+            )
             num_trucks_available = st.slider(
                 "Trucks available", min_value=2, max_value=len(trucks), value=len(trucks)
             )
             solve_time_limit = st.slider(
                 "OR-Tools solve time limit (sec)", min_value=5, max_value=45, value=15
             )
-            n_customers_route = len(customers)
         else:
             st.caption(
                 f"{route_solver_choice} is an exact solver — restricted to a smaller "
