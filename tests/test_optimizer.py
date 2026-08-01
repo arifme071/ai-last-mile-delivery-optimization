@@ -23,6 +23,7 @@ from models.travel_time_model import generate_trip_history, train_travel_time_mo
 from optimization.ortools_solver import load_instance, solve_cvrptw
 from optimization.vrp_model import load_instance as load_gurobi_instance
 from optimization.vrp_model import solve_demo
+from optimization.multi_solver_vrp import solve_cvrptw_multi
 
 
 @pytest.fixture(scope="module")
@@ -94,3 +95,19 @@ def test_travel_time_model_beats_naive_baseline():
     # RandomForest should explain the bulk of variance in a fully
     # synthetic, low-noise dataset like this one.
     assert metrics["r2"] > 0.85
+
+
+def test_multi_solver_backends_agree_on_optimal_cost():
+    customers, trucks, depot = load_gurobi_instance(max_customers=6)
+
+    objectives = {}
+    for solver_name in ["CBC", "SCIP", "GUROBI"]:
+        result = solve_cvrptw_multi(customers, trucks, depot, solver_name=solver_name, time_limit_sec=30)
+        if not result.get("error") and result.get("objective") is not None:
+            objectives[solver_name] = round(result["objective"], 1)
+
+    # At least two solvers should be available in any environment, and
+    # any solvers that did run should agree on the same optimal cost —
+    # confirming the formulation itself is solver-independent.
+    assert len(objectives) >= 2
+    assert len(set(objectives.values())) == 1
