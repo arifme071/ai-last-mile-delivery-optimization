@@ -6,8 +6,8 @@ import pandas as pd
 
 RANDOM_SEED = 42
 
-NUM_CUSTOMERS = 30
-NUM_TRUCKS = 4
+NUM_CUSTOMERS = 100
+NUM_TRUCKS = 15
 
 # Approximate downtown Atlanta coordinates
 DEPOT_LATITUDE = 33.7490
