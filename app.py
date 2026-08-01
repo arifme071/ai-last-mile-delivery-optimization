@@ -176,7 +176,7 @@ with tab_forecast:
     with st.expander("Compare all forecasting models on this data"):
         compare_rows = []
         for name in DEMAND_MODEL_FACTORIES:
-            _, m = _cached_demand_forecast(model_type=name)
+            _, _, m = _cached_demand_forecast(model_type=name)
             compare_rows.append(
                 {"Model": name, "Backtest MAE (pkgs/day)": round(m["mae"], 1),
                  "Backtest MAPE (%)": round(m["mape"] * 100, 2)}
