@@ -1,6 +1,9 @@
 # Optimization
 gurobipy>=11.0
 ortools>=9.9
+pulp>=2.8
+cplex>=22.1
+pyscipopt>=5.1
 
 # Data & ML
 pandas>=2.0

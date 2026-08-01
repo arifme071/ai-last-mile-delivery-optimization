@@ -36,6 +36,11 @@ from models.travel_time_model import (
 from optimization.ortools_solver import load_instance, solve_cvrptw
 from optimization.vrp_model import load_instance as load_gurobi_instance
 from optimization.vrp_model import solve_demo as solve_gurobi_demo
+from optimization.multi_solver_vrp import (
+    SOLVER_FACTORIES,
+    SOLVER_NOTES,
+    solve_cvrptw_multi,
+)
 from visualization.route_map import build_route_map
 
 st.set_page_config(
@@ -72,8 +77,8 @@ st.caption(
 
 customers, trucks, depot = _cached_load_instance()
 
-tab_routing, tab_forecast, tab_scenario, tab_about = st.tabs(
-    ["📍 Route Optimization", "📈 Demand Forecast", "🔧 Scenario Analysis", "ℹ️ About"]
+tab_routing, tab_forecast, tab_scenario, tab_solvers, tab_about = st.tabs(
+    ["📍 Route Optimization", "📈 Demand Forecast", "🔧 Scenario Analysis", "⚖️ Solver Comparison", "ℹ️ About"]
 )
 
 # ----------------------------------------------------------------------
@@ -252,7 +257,94 @@ with tab_scenario:
     )
 
 # ----------------------------------------------------------------------
-# TAB 4 — About
+# TAB 4 — Solver Comparison (Gurobi vs CPLEX vs SCIP vs CBC)
+# ----------------------------------------------------------------------
+with tab_solvers:
+    st.subheader("Exact Solver Comparison")
+    st.caption(
+        "Runs the exact same CVRPTW mixed-integer formulation through four different "
+        "solver backends — Gurobi, IBM CPLEX, SCIP, and CBC — via a common PuLP model. "
+        "Useful for comparing free vs. commercial solvers on speed and license limits, "
+        "not just picking one vendor by default."
+    )
+
+    col_a, col_b = st.columns([1, 1])
+    with col_a:
+        n_customers_solver = st.slider(
+            "Customers in this small instance", min_value=4, max_value=10, value=6,
+            help="Kept small so this stays within Gurobi's/CPLEX's free license limits.",
+        )
+    with col_b:
+        solver_time_limit = st.slider("Per-solver time limit (sec)", 5, 60, 20)
+
+    selected_solvers = st.multiselect(
+        "Solvers to compare",
+        options=list(SOLVER_FACTORIES.keys()),
+        default=list(SOLVER_FACTORIES.keys()),
+    )
+
+    with st.expander("What each solver is"):
+        for name, note in SOLVER_NOTES.items():
+            st.write(f"**{name}** — {note}")
+
+    run_solver_comparison = st.button("Run solver comparison", type="primary")
+
+    if run_solver_comparison:
+        small_customers = customers.head(n_customers_solver)
+        comparison_rows = []
+        progress = st.progress(0.0)
+
+        for i, solver_name in enumerate(selected_solvers):
+            result = solve_cvrptw_multi(
+                small_customers, trucks, depot,
+                solver_name=solver_name, time_limit_sec=solver_time_limit,
+            )
+            if result.get("error"):
+                comparison_rows.append(
+                    {"Solver": solver_name, "Status": "Not available", "Objective ($)": None,
+                     "Trucks used": None, "Solve time (s)": None}
+                )
+            else:
+                comparison_rows.append(
+                    {
+                        "Solver": solver_name,
+                        "Status": result["status"],
+                        "Objective ($)": round(result["objective"], 2) if result["objective"] is not None else None,
+                        "Trucks used": result.get("trucks_used"),
+                        "Solve time (s)": round(result["runtime_sec"], 2),
+                    }
+                )
+            progress.progress((i + 1) / max(len(selected_solvers), 1))
+
+        comparison_df = pd.DataFrame(comparison_rows)
+        st.session_state["solver_comparison_df"] = comparison_df
+
+    comparison_df = st.session_state.get("solver_comparison_df")
+    if comparison_df is not None:
+        st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+
+        solved_df = comparison_df.dropna(subset=["Objective ($)"])
+        if len(solved_df) > 1 and solved_df["Objective ($)"].nunique() == 1:
+            st.success(
+                f"All solvers that ran agree on the same optimal cost — "
+                f"${solved_df['Objective ($)'].iloc[0]:.2f} — confirming the formulation "
+                f"is solver-independent. Solve time is where they actually differ."
+            )
+
+        fig = go.Figure()
+        fig.add_trace(
+            go.Bar(x=solved_df["Solver"], y=solved_df["Solve time (s)"], marker_color="#C41E3A")
+        )
+        fig.update_layout(
+            xaxis_title="Solver", yaxis_title="Solve time (seconds)",
+            margin=dict(l=10, r=10, t=10, b=10),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("Click **Run solver comparison** to benchmark Gurobi, CPLEX, SCIP, and CBC on the same problem.")
+
+# ----------------------------------------------------------------------
+# TAB 5 — About
 # ----------------------------------------------------------------------
 with tab_about:
     st.subheader("About this project")
@@ -260,13 +352,18 @@ with tab_about:
         """
 This platform demonstrates an end-to-end operations research + ML workflow
 for last-mile delivery, built around a synthetic Atlanta delivery network
-(30 customers, 4 trucks, a single depot):
+(30 customers, 6 trucks, a single depot):
 
 - **Exact optimization (Gurobi):** `optimization/vrp_model.py` formulates the
   full Capacitated VRP with Time Windows (CVRPTW) as a mixed-integer program
   and solves it to proven (near-)optimality on a small instance.
+- **Multi-solver comparison (Gurobi / CPLEX / SCIP / CBC):**
+  `optimization/multi_solver_vrp.py` builds the same formulation in PuLP so
+  it can run against four different solver backends — two commercial
+  (Gurobi, IBM CPLEX) and two free/open-source (SCIP, CBC) — to compare
+  license limits and solve speed on identical problems.
 - **Large-scale optimization (OR-Tools):** `optimization/ortools_solver.py`
-  solves the full 30-stop / 4-truck instance in seconds using constraint
+  solves the full 30-stop / 6-truck instance in seconds using constraint
   programming + guided local search — the same exact-vs-heuristic trade-off
   that underlies production routing systems like UPS's ORION.
 - **Demand forecasting (XGBoost):** `models/demand_prediction.py` forecasts
