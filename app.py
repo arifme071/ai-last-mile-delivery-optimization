@@ -46,6 +46,14 @@ from optimization.multi_solver_vrp import (
     haversine_km,
     solve_cvrptw_multi,
 )
+from reporting.pdf_report import (
+    add_demand_forecast_section,
+    add_route_optimization_section,
+    add_scenario_analysis_section,
+    add_solver_comparison_section,
+    add_travel_time_section,
+    build_report,
+)
 from visualization.route_map import build_route_map
 
 st.set_page_config(
@@ -208,6 +216,19 @@ with tab_routing:
         st.subheader("Route Detail")
         for truck_id, route in result["routes"].items():
             st.write(f"**{truck_id}**: {' → '.join(route)}")
+
+        route_pdf = build_report([
+            lambda pdf: add_route_optimization_section(
+                pdf, result, solver_used, elapsed, len(customers_for_map)
+            )
+        ])
+        st.download_button(
+            "📄 Download Route Optimization report (PDF)",
+            data=route_pdf,
+            file_name="route_optimization_report.pdf",
+            mime="application/pdf",
+            key="download_route_report",
+        )
     else:
         st.info("Set your fleet size and click **Solve routes** to generate an optimized plan.")
 
@@ -274,6 +295,21 @@ with tab_forecast:
             "the Scenario Analysis tab in a production deployment, rather than "
             "sizing the fleet off yesterday's volume."
         )
+
+    st.session_state["demand_forecast_model"] = demand_model_choice
+    st.session_state["demand_forecast_metrics"] = metrics
+    st.session_state["demand_forecast_df"] = forecast
+
+    demand_pdf = build_report([
+        lambda pdf: add_demand_forecast_section(pdf, demand_model_choice, metrics, forecast)
+    ])
+    st.download_button(
+        "📄 Download Demand Forecast report (PDF)",
+        data=demand_pdf,
+        file_name="demand_forecast_report.pdf",
+        mime="application/pdf",
+        key="download_demand_report",
+    )
 
 # ----------------------------------------------------------------------
 # TAB 3 — Scenario / sensitivity analysis
@@ -382,6 +418,25 @@ with tab_scenario:
             "illustration of when a simple model structurally can't fit the pattern, "
             "no matter how much data it sees."
         )
+
+    st.session_state["travel_time_model"] = tt_model_choice
+    st.session_state["travel_time_metrics"] = tt_metrics
+
+    scenario_sections = []
+    if scenario_df is not None:
+        scenario_sections.append(lambda pdf: add_scenario_analysis_section(pdf, scenario_df))
+    scenario_sections.append(lambda pdf: add_travel_time_section(pdf, tt_model_choice, tt_metrics))
+
+    scenario_pdf = build_report(scenario_sections)
+    st.download_button(
+        "📄 Download Scenario Analysis report (PDF)",
+        data=scenario_pdf,
+        file_name="scenario_analysis_report.pdf",
+        mime="application/pdf",
+        key="download_scenario_report",
+    )
+    if scenario_df is None:
+        st.caption("Run a scenario sweep above to include it in this report — currently only the travel-time comparison is included.")
 
 # ----------------------------------------------------------------------
 # TAB 4 — Solver Comparison (Gurobi vs CPLEX vs SCIP vs CBC)
@@ -517,6 +572,17 @@ with tab_solvers:
                     "exact solver does once it proves optimality, so its wall-clock time "
                     "isn't directly comparable to the exact solvers' solve times."
                 )
+
+        solver_pdf = build_report([
+            lambda pdf: add_solver_comparison_section(pdf, comparison_df)
+        ])
+        st.download_button(
+            "📄 Download Solver Comparison report (PDF)",
+            data=solver_pdf,
+            file_name="solver_comparison_report.pdf",
+            mime="application/pdf",
+            key="download_solver_report",
+        )
     else:
         st.info("Click **Run solver comparison** to benchmark Gurobi, CPLEX, SCIP, CBC, and OR-Tools on the same problem.")
 
@@ -555,4 +621,84 @@ for last-mile delivery, built around a synthetic Atlanta delivery network
 
 See the README for setup instructions and a fuller writeup of each module.
         """
+    )
+
+    st.divider()
+    st.subheader("📄 Combined Report")
+    st.caption(
+        "Builds one PDF covering every section you've actually run so far in this "
+        "session. Sections you haven't run yet are simply left out — run them in "
+        "their tabs first, then come back here."
+    )
+
+    combined_sections = []
+    included = []
+    missing = []
+
+    last_result = st.session_state.get("last_result")
+    if last_result is not None:
+        combined_sections.append(
+            lambda pdf: add_route_optimization_section(
+                pdf, last_result,
+                st.session_state.get("last_solver_used", "OR-Tools"),
+                st.session_state.get("last_elapsed", 0.0),
+                len(st.session_state.get("last_customers_used", customers)),
+            )
+        )
+        included.append("Route Optimization")
+    else:
+        missing.append("Route Optimization")
+
+    if st.session_state.get("demand_forecast_df") is not None:
+        combined_sections.append(
+            lambda pdf: add_demand_forecast_section(
+                pdf,
+                st.session_state["demand_forecast_model"],
+                st.session_state["demand_forecast_metrics"],
+                st.session_state["demand_forecast_df"],
+            )
+        )
+        included.append("Demand Forecast")
+    else:
+        missing.append("Demand Forecast")
+
+    scenario_df_combined = st.session_state.get("scenario_df")
+    if scenario_df_combined is not None:
+        combined_sections.append(lambda pdf: add_scenario_analysis_section(pdf, scenario_df_combined))
+        included.append("Scenario Analysis")
+    else:
+        missing.append("Scenario Analysis")
+
+    if st.session_state.get("travel_time_metrics") is not None:
+        combined_sections.append(
+            lambda pdf: add_travel_time_section(
+                pdf,
+                st.session_state["travel_time_model"],
+                st.session_state["travel_time_metrics"],
+            )
+        )
+        included.append("Travel-Time Model")
+    else:
+        missing.append("Travel-Time Model")
+
+    solver_comparison_df_combined = st.session_state.get("solver_comparison_df")
+    if solver_comparison_df_combined is not None:
+        combined_sections.append(lambda pdf: add_solver_comparison_section(pdf, solver_comparison_df_combined))
+        included.append("Solver Comparison")
+    else:
+        missing.append("Solver Comparison")
+
+    if included:
+        st.success(f"Will include: {', '.join(included)}")
+    if missing:
+        st.caption(f"Not yet run, so excluded: {', '.join(missing)}")
+
+    combined_pdf = build_report(combined_sections)
+    st.download_button(
+        "📄 Download Combined Report (PDF)",
+        data=combined_pdf,
+        file_name="last_mile_optimization_combined_report.pdf",
+        mime="application/pdf",
+        key="download_combined_report",
+        disabled=len(combined_sections) == 0,
     )

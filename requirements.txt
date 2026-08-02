@@ -16,6 +16,7 @@ streamlit>=1.35
 streamlit-folium>=0.22
 folium>=0.16
 plotly>=5.20
+fpdf2>=2.8
 
 # Testing
 pytest>=8.0
