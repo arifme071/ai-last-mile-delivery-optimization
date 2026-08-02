@@ -152,6 +152,14 @@ with tab_routing:
                 start = time.time()
                 result = solve_cvrptw(active_customers, active_trucks, depot, time_limit_sec=solve_time_limit)
                 elapsed = time.time() - start
+
+            if result is None:
+                st.error(
+                    f"No feasible solution found with {num_trucks_available} truck(s) for "
+                    f"{n_customers_route} customers. This is usually a fleet-size issue, not a bug — "
+                    f"try increasing **Trucks available** (this network typically needs about 10 "
+                    f"trucks minimum to cover all delivery time windows at full 100-customer scale)."
+                )
         else:
             with st.spinner(f"Solving exactly with {route_solver_choice}..."):
                 start = time.time()
