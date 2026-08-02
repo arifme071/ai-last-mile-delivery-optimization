@@ -141,3 +141,27 @@ def test_ortools_route_distance_matches_manual_haversine_sum():
             )
 
     assert abs(manual_total_km - result["total_distance_km"]) < 0.01
+
+
+def test_pdf_report_handles_unicode_characters_in_data():
+    """
+    Regression test: fpdf2's core Latin-1 fonts crash on em-dashes, en-dashes,
+    smart quotes, and other common Unicode punctuation. The Scenario Analysis
+    infeasibility message ("No — insufficient capacity...") contains an em
+    dash and previously crashed PDF generation entirely. This confirms the
+    sanitize_text() pass-through in reporting/pdf_report.py handles it.
+    """
+    import pandas as pd
+    from reporting.pdf_report import add_scenario_analysis_section, build_report
+
+    scenario_df = pd.DataFrame({
+        "Trucks available": [8, 10],
+        "Feasible": ["No \u2014 insufficient capacity/time-window coverage", "Yes"],
+        "Total cost ($)": [None, 1001.58],
+    })
+
+    pdf_bytes = build_report([
+        lambda pdf: add_scenario_analysis_section(pdf, scenario_df)
+    ])
+
+    assert len(pdf_bytes) > 0

@@ -23,6 +23,35 @@ BRAND_COLOR = (196, 30, 58)  # matches the app's red accent
 TEXT_COLOR = (30, 30, 30)
 MUTED_COLOR = (100, 100, 100)
 
+# fpdf2's built-in core fonts (Helvetica, etc.) only support Latin-1.
+# Any text coming from app data — dataframe values, f-strings built
+# from live results — can contain characters outside that range (em
+# dashes, smart quotes, superscripts) and will crash generation with
+# FPDFUnicodeEncodingException. Rather than hunting down every source
+# string, every piece of text is passed through this before rendering.
+_UNICODE_REPLACEMENTS = {
+    "\u2014": "-",   # em dash —
+    "\u2013": "-",   # en dash –
+    "\u2018": "'",   # left single quote '
+    "\u2019": "'",   # right single quote '
+    "\u201c": '"',   # left double quote "
+    "\u201d": '"',   # right double quote "
+    "\u2026": "...", # ellipsis …
+    "\u00b2": "^2",  # superscript two ²
+    "\u00b0": " deg",  # degree sign °
+    "\u2192": "->",  # rightwards arrow →
+    "\u00a0": " ",   # non-breaking space
+}
+
+
+def sanitize_text(value) -> str:
+    """Coerce any value to a string safe for fpdf2's core Latin-1 fonts."""
+    text = str(value)
+    for unicode_char, ascii_replacement in _UNICODE_REPLACEMENTS.items():
+        text = text.replace(unicode_char, ascii_replacement)
+    # Catch-all: drop anything still outside Latin-1 rather than crash.
+    return text.encode("latin-1", errors="replace").decode("latin-1")
+
 
 class Report(FPDF):
     """FPDF subclass with a consistent header/footer for every page."""
@@ -48,7 +77,7 @@ class Report(FPDF):
 def _section_title(pdf: Report, title: str):
     pdf.set_font("Helvetica", "B", 13)
     pdf.set_text_color(*TEXT_COLOR)
-    pdf.cell(0, 9, title, ln=True)
+    pdf.cell(0, 9, sanitize_text(title), ln=True)
     pdf.ln(1)
 
 
@@ -60,12 +89,12 @@ def _kpi_row(pdf: Report, kpis: dict[str, str]):
         pdf.set_font("Helvetica", "", 8)
         pdf.set_text_color(*MUTED_COLOR)
         x, y = pdf.get_x(), pdf.get_y()
-        pdf.multi_cell(col_width, 5, label, align="L")
+        pdf.multi_cell(col_width, 5, sanitize_text(label), align="L")
         pdf.set_xy(x, y + 5)
         pdf.set_font("Helvetica", "B", 11)
         pdf.set_text_color(*TEXT_COLOR)
         pdf.set_xy(x, y + 5)
-        pdf.cell(col_width, 7, value, align="L")
+        pdf.cell(col_width, 7, sanitize_text(value), align="L")
         pdf.set_xy(x + col_width, y)
     pdf.ln(14)
 
@@ -76,13 +105,13 @@ def _dataframe_table(pdf: Report, df: pd.DataFrame, max_rows: int = 25):
     pdf.set_text_color(*TEXT_COLOR)
     col_width = 190 / len(df.columns)
     for col in df.columns:
-        pdf.cell(col_width, 7, str(col)[:22], border=1, fill=True)
+        pdf.cell(col_width, 7, sanitize_text(col)[:22], border=1, fill=True)
     pdf.ln()
 
     pdf.set_font("Helvetica", "", 8)
     for _, row in df.head(max_rows).iterrows():
         for val in row:
-            pdf.cell(col_width, 6, str(val)[:22], border=1)
+            pdf.cell(col_width, 6, sanitize_text(val)[:22], border=1)
         pdf.ln()
 
     if len(df) > max_rows:
@@ -96,7 +125,7 @@ def _text_block(pdf: Report, text: str):
     pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(*TEXT_COLOR)
     pdf.set_x(pdf.l_margin)
-    pdf.multi_cell(0, 5, text)
+    pdf.multi_cell(0, 5, sanitize_text(text))
     pdf.ln(3)
 
 
@@ -120,7 +149,7 @@ def add_route_optimization_section(pdf: Report, result: dict, solver_used: str, 
     pdf.set_font("Helvetica", "", 8)
     for truck_id, route in result["routes"].items():
         pdf.set_x(pdf.l_margin)
-        pdf.multi_cell(0, 5, f"{truck_id}: {' -> '.join(route)}")
+        pdf.multi_cell(0, 5, sanitize_text(f"{truck_id}: {' -> '.join(route)}"))
     pdf.ln(4)
 
 
