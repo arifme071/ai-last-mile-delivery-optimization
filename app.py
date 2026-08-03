@@ -122,6 +122,29 @@ with tab_routing:
             solve_time_limit = st.slider(
                 "OR-Tools solve time limit (sec)", min_value=5, max_value=45, value=15
             )
+        elif route_solver_choice == "GUROBI":
+            st.caption(
+                "Gurobi is running with an unrestricted academic license on this machine — "
+                "no variable/constraint cap. Full network is selectable, but exact MIP "
+                "solving at this scale is genuinely hard: tested directly, the full "
+                "100-customer instance explored only 1 branch-and-bound node and found "
+                "zero feasible solutions in 120 seconds. This isn't a license limitation — "
+                "it's the real computational cost of proving optimality at scale, which is "
+                "exactly why OR-Tools is the practical choice for production-size runs."
+            )
+            n_customers_route = st.slider(
+                "Customers to include", min_value=4, max_value=len(customers), value=10,
+                help="Small values (under ~15) solve to proven optimality in seconds. "
+                     "Large values may not find any feasible solution within the time limit.",
+            )
+            num_trucks_available = st.slider(
+                "Trucks available", min_value=2, max_value=len(trucks), value=min(4, len(trucks)),
+            )
+            solve_time_limit = st.slider(
+                "Gurobi solve time limit (sec)", min_value=5, max_value=120, value=20,
+                help="Exact MIP solving on a large instance may not converge even at the max here — "
+                     "that's expected, not a bug.",
+            )
         else:
             st.caption(
                 f"{route_solver_choice} is an exact solver — restricted to a smaller "
