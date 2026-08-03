@@ -129,10 +129,10 @@ with tab_routing:
                 f"time reasonable. {SOLVER_NOTES.get(route_solver_choice, '')}"
             )
             n_customers_route = st.slider(
-                "Customers to include", min_value=4, max_value=10, value=6,
+                "Customers to include", min_value=4, max_value=len(customers), value=len(customers),
             )
             num_trucks_available = st.slider(
-                "Trucks available", min_value=2, max_value=min(6, len(trucks)),
+                "Trucks available", min_value=2, max_value=min(len(trucks), len(trucks)),
                 value=min(4, len(trucks)),
                 help="Kept small alongside customers — both add to the variable count "
                      "that exact solvers must handle within their license limits.",
